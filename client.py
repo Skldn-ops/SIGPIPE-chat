@@ -24,6 +24,7 @@ class Message:
 class Chat:
     def __init__(self):
         self.chat_with = "@0"
+        self.username = ""
 
     async def chat_client(self):
         SERVER_IP = '192.168.1.110'
@@ -35,18 +36,55 @@ class Chat:
         reader, writer = await asyncio.open_connection(SERVER_IP, SERVER_PORT)
         print("Подключено к чат-серверу")
             
+        async def auth(reader, writer):
+            while True:    
+                data = await reader.read(1024)
+                ans = data.decode()
+                print(ans)
+                
+                ans = await asyncio.to_thread(input, "> ")
+                writer.write(ans.encode())
+                await writer.drain()
+                # if ans != "/reg" or ans != "/in":
+                #     continue
+
+                data = await reader.read(1024)
+                ans = data.decode()
+                print(ans)
+
+                self.username = await asyncio.to_thread(input, "> ")
+                writer.write(self.username.encode())
+                await writer.drain()
+                # if self.username[0] != '@':
+                #     continue
+
+                data = await reader.read(1024)
+                ans = data.decode()
+                print(ans)
+
+                ans = await asyncio.to_thread(input, "> ")
+                writer.write(self.username.encode())
+                await writer.drain()
+
+                data = await reader.read(1024)
+                ans = data.decode()
+                if ans[:7] == 'success':
+                    print(ans)
+                    break
+
+
+
 
         async def print_from_queue():
             messages_queue.reverse()
             for i in range(len(messages_queue) - 1, -1, -1):
                 temp = messages_queue[i]
-                if str(temp.sender) == str(self.chat_with):
+                if temp.sender == self.chat_with:
                     print(f"\n[{temp.sender} -> {temp.receiver}]: {temp.text}")
                     del messages_queue[i]
             messages_queue.reverse()
 
             
-
 
         async def receive_messages(self):
             try:
@@ -60,8 +98,7 @@ class Chat:
                     try:
                         data = json.loads(received_data.decode())
                         message = Message.from_dict(data)
-                        if str(message.sender) == str(self.chat_with):
-                            #await print_from_queue()
+                        if message.sender == self.chat_with:
                             print(f"\n[{message.sender} -> {message.receiver}]: {message.text}")
                             print("> ", end="", flush=True)
                         else:
@@ -89,12 +126,11 @@ class Chat:
                         break
                     
 
-                    #parts = user_input.split(' ', 1)
                     if user_input.lower()[0] == '@':
-                        self.chat_with = user_input.lower()[1:]
+                        self.chat_with = user_input.lower()
                         await print_from_queue()
                     elif(self.chat_with != ''):
-                        msg = Message(sender="me", receiver = int(self.chat_with), text = user_input)
+                        msg = Message(sender=self.username, receiver = self.chat_with, text = user_input)
                         writer.write(json.dumps(msg.to_dict()).encode())
                         await writer.drain()
 
@@ -104,7 +140,9 @@ class Chat:
                 writer.close()
                 await writer.wait_closed()
         
-        #define_reciever_task = asyncio.create_task(find_reciever())
+
+        await auth(reader, writer)
+
         receive_task = asyncio.create_task(receive_messages(self))
         send_task = asyncio.create_task(send_messages(self))
         
