@@ -120,7 +120,13 @@ class ChatServer:
     async def handle_client(self, reader, writer):
         addr = writer.get_extra_info('peername')
 
-        client_id = await self.auth_func(reader, writer)
+        try:
+            client_id = await self.auth_func(reader, writer)
+        except ConnectionResetError:
+            print("Клиент ввел неверный пароль")
+            return
+            
+
         client_name = self.Tab.get_username_by_id(client_id)
         print(f"Клиент {client_id} {client_name} подключился и авторизовался: {addr}")
 
@@ -254,7 +260,7 @@ class ChatServer:
     #         )
 
 async def main():
-    server = await asyncio.start_server(ChatServer().handle_client, '0.0.0.0', 8888)
+    server = await asyncio.start_server(ChatServer().handle_client, '192.168.1.117', 8888)
     
     addr = server.sockets[0].getsockname()
     print(f'Чат-сервер запущен на {addr}')

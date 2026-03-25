@@ -1,5 +1,6 @@
 import asyncio
 import json
+import getpass
 
 class Message:
     def __init__(self, sender="0", receiver="0", text="0"):
@@ -27,7 +28,7 @@ class Chat:
         self.username = "__NO_NAME__"
 
     async def chat_client(self):
-        SERVER_IP = '10.42.0.1'
+        SERVER_IP = '192.168.1.117'
         SERVER_PORT = 8888
 
         messages_queue = []
@@ -64,7 +65,7 @@ class Chat:
                     if attempts < 0:
                         return True
                 
-                    ans = await asyncio.to_thread(input, "> ")
+                    ans = await asyncio.to_thread(getpass.getpass, "> ")
                     writer.write(ans.encode())
                     await writer.drain()
                     
@@ -147,7 +148,8 @@ class Chat:
         print("Подключено к чат-серверу")
         while(await auth(reader, writer)):
             print("Failed to authenticate\n")
-            reader, writer = await asyncio.open_connection(SERVER_IP, SERVER_PORT)
+            return
+            #reader, writer = await asyncio.open_connection(SERVER_IP, SERVER_PORT)
 
         receive_task = asyncio.create_task(receive_messages(self))
         send_task = asyncio.create_task(send_messages(self))
