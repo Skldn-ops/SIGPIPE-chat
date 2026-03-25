@@ -42,6 +42,10 @@ class ChatServer:
                 data = await reader.read(1024)
 
                 command = data.decode()
+                if command != '/reg' and command != "/in":
+                    writer.close()
+                    await writer.wait_closed()
+
                 if command == '/reg':
                     
                     reg_mes = "username(starts with '@'): "
@@ -50,7 +54,8 @@ class ChatServer:
                     data = await reader.read(1024)
                     client_name = data.decode()
                     if client_name[0] != '@' or client_name == "@0":
-                        continue
+                        writer.close()
+                        await writer.wait_closed()
                     
                     reg_mes = "password: "
                     writer.write(reg_mes.encode())
@@ -58,7 +63,8 @@ class ChatServer:
                     data = await reader.read(1024)
                     client_passwd = data.decode()
                     if not client_passwd:
-                        continue
+                        writer.close()
+                        await writer.wait_closed()
                     
                     client_id = self.Tab.register_user(client_name, client_passwd)
                     
@@ -73,16 +79,32 @@ class ChatServer:
                     await writer.drain()
                     data = await reader.read(1024)
                     client_name = data.decode()
+                    if not client_name or client_name[0] != '@' or client_name == "@0" or not(self.Tab.get_id_by_username(client_name)):
+                        writer.close()
+                        await writer.wait_closed()
 
                     reg_mes = "password: "
                     writer.write(reg_mes.encode())
                     await writer.drain()
-                    data = await reader.read(1024)
-                    client_passwd = data.decode()
 
-                    client_id = self.Tab.authenticate_user(client_name, client_passwd)
-                    if client_id is None:
-                        continue
+                    client_id = None
+                    attempts = 5
+                    while client_id is None:
+                        attempts-=1
+                        if attempts < 0:
+                            writer.close()
+                            await writer.wait_closed()
+                            break
+
+                        data = await reader.read(1024)
+                        client_passwd = data.decode()
+
+                        client_id = self.Tab.authenticate_user(client_name, client_passwd)
+                        if client_id is None:
+                            reg_mes = "Wrong password\n"
+                            writer.write(reg_mes.encode())
+                            await writer.drain()
+                            
 
                     reg_mes = "success auth\n"
                     writer.write(reg_mes.encode())
@@ -124,7 +146,7 @@ class ChatServer:
         except asyncio.CancelledError:
             print(f"Клиент {client_id} прерван")
         finally:
-            self.remove_client(client_id)
+            #self.remove_client(client_id)
             writer.close()
             await writer.wait_closed()
             print(f"Клиент {client_id} отключен")
@@ -149,17 +171,14 @@ class ChatServer:
                     
                     await self.send_to_friend(received_msg)
                     
-                except json.JSONDecodeError:
-                    # Если это не JSON, обрабатываем как старый формат
-                    message = data.decode().strip()
-                    print(f"Получен текст от клиента {client_id}: {message}")
-                    
-                    # Пробуем распарсить старый формат "получатель сообщение"
-                    parts = message.split(' ', 1)
-                    if len(parts) == 2:
-                        friend_id, text = parts
-                        msg = Message(sender=str(client_id), receiver=friend_id, text=text)
-                        await self.send_to_friend(client_id, int(friend_id), msg)
+                except(ConnectionError, BrokenPipeError, ConnectionResetError) as e:
+                    print(f"Соединение с клиентом {client_id} разорвано: {e}")
+                    break 
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    print(f"Ошибка при чтении от клиента {client_id}: {e}")
+                    break
                 
         except asyncio.CancelledError:
             print(f"Чтение от клиента {client_id} отменено")
@@ -168,13 +187,19 @@ class ChatServer:
     async def send_to_client(self, client_id, writer):
         try:
             while True:
-                message_obj = await self.message_queues[client_id].get()
+                try:
+                    message_obj = await self.message_queues[client_id].get()
+                    
+                    json_data = json.dumps(message_obj.to_dict())
+                    writer.write(json_data.encode())
+                    await writer.drain()
                 
-                # Сериализуем объект Message в JSON перед отправкой
-                json_data = json.dumps(message_obj.to_dict())
-                writer.write(json_data.encode())
-                await writer.drain()
-                
+                except(ConnectionError, BrokenPipeError, ConnectionResetError) as e:
+                    print(f"Соединение с клиентом {client_id} разорвано при отправке: {e}")
+                    break
+                except asyncio.CancelledError:
+                    raise               
+        
         except asyncio.CancelledError:
             print(f"Отправка клиенту {client_id} отменена")
             raise
@@ -216,24 +241,23 @@ class ChatServer:
     #             if client_id in self.message_queues:
     #                 await self.message_queues[client_id].put(message_obj)
     
-    def remove_client(self, client_id):
-        if client_id in self.id_descr:
-            del self.id_descr[client_id]
-        if client_id in self.message_queues:
-            del self.message_queues[client_id]
+    # def remove_client(self, client_id):
+    #     if client_id in self.id_descr:
+    #         del self.id_descr[client_id]
+    #     if client_id in self.message_queues:
+    #         del self.message_queues[client_id]
         
-        if self.id_descr:
-            asyncio.create_task(
-                self.broadcast(Message(sender="0", receiver="all", 
-                                      text=f"Клиент {client_id} покинул чат"))
-            )
+    #     if self.id_descr:
+    #         asyncio.create_task(
+    #             self.broadcast(Message(sender="0", receiver="all", 
+    #                                   text=f"Клиент {client_id} покинул чат"))
+    #         )
 
 async def main():
-    server = await asyncio.start_server(ChatServer().handle_client, '192.168.1.110', 8888)
+    server = await asyncio.start_server(ChatServer().handle_client, '0.0.0.0', 8888)
     
     addr = server.sockets[0].getsockname()
     print(f'Чат-сервер запущен на {addr}')
-    print('Ожидание подключения двух клиентов...')
     
     async with server:
         await server.serve_forever()

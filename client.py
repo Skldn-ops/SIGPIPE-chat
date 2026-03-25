@@ -24,17 +24,14 @@ class Message:
 class Chat:
     def __init__(self):
         self.chat_with = "@0"
-        self.username = ""
+        self.username = "__NO_NAME__"
 
     async def chat_client(self):
-        SERVER_IP = '192.168.1.110'
+        SERVER_IP = '10.42.0.1'
         SERVER_PORT = 8888
 
         messages_queue = []
 
-        
-        reader, writer = await asyncio.open_connection(SERVER_IP, SERVER_PORT)
-        print("Подключено к чат-серверу")
             
         async def auth(reader, writer):
             while True:    
@@ -42,35 +39,40 @@ class Chat:
                 ans = data.decode()
                 print(ans)
                 
-                ans = await asyncio.to_thread(input, "> ")
+                while(ans != '/reg' and ans != '/in'):
+                    ans = await asyncio.to_thread(input, "> ")
+                    print(ans)
                 writer.write(ans.encode())
                 await writer.drain()
-                # if ans != "/reg" or ans != "/in":
-                #     continue
 
                 data = await reader.read(1024)
                 ans = data.decode()
                 print(ans)
 
-                self.username = await asyncio.to_thread(input, "> ")
+                while self.username[0] != '@':
+                    self.username = await asyncio.to_thread(input, "> ")
                 writer.write(self.username.encode())
                 await writer.drain()
-                # if self.username[0] != '@':
-                #     continue
 
                 data = await reader.read(1024)
                 ans = data.decode()
                 print(ans)
 
-                ans = await asyncio.to_thread(input, "> ")
-                writer.write(self.username.encode())
-                await writer.drain()
-
-                data = await reader.read(1024)
-                ans = data.decode()
-                if ans[:7] == 'success':
+                attempts = 5
+                while(ans[:7] != "success"):
+                    attempts-=1
+                    if attempts < 0:
+                        return True
+                
+                    ans = await asyncio.to_thread(input, "> ")
+                    writer.write(ans.encode())
+                    await writer.drain()
+                    
+                    data = await reader.read(1024)
+                    ans = data.decode()
                     print(ans)
-                    break
+
+                return False
 
 
 
@@ -141,7 +143,11 @@ class Chat:
                 await writer.wait_closed()
         
 
-        await auth(reader, writer)
+        reader, writer = await asyncio.open_connection(SERVER_IP, SERVER_PORT)
+        print("Подключено к чат-серверу")
+        while(await auth(reader, writer)):
+            print("Failed to authenticate\n")
+            reader, writer = await asyncio.open_connection(SERVER_IP, SERVER_PORT)
 
         receive_task = asyncio.create_task(receive_messages(self))
         send_task = asyncio.create_task(send_messages(self))
