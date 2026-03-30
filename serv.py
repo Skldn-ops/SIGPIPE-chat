@@ -26,12 +26,11 @@ class Message:
 
 class ChatServer:
     def __init__(self):
-        self.id_descr = {}
-        self.message_queues = {}
         self.client_counter = 0
         self.Tab = sql_tab.DB_manager()
-        # self.client_names = {}
-        # self.client_passwds = {}
+        self.id_descr = {}  # (client_id, connection_id) -> (reader, writer)
+        self.message_queues = {}  # (client_id, connection_id) -> Queue
+        self.user_connections = {}  # client_id -> set of connection_ids
 
 
     async def auth_func(self, reader, writer):
@@ -127,11 +126,19 @@ class ChatServer:
             return
             
 
+
         client_name = self.Tab.get_username_by_id(client_id)
         print(f"Клиент {client_id} {client_name} подключился и авторизовался: {addr}")
 
-        self.message_queues[client_id] = asyncio.Queue()
-        self.id_descr[client_id] = (reader, writer)
+        connection_id = self.client_counter
+        self.client_counter += 1
+
+        self.id_descr[(client_id, connection_id)] = (reader, writer)
+        self.message_queues[(client_id, connection_id)] = asyncio.Queue()
+        
+        if client_id not in self.user_connections:
+            self.user_connections[client_id] = set()
+        self.user_connections[client_id].add(connection_id)
         
         # Отправляем клиенту его ID как объект Message
         welcome_msg = Message(sender="@0", receiver=client_name, 
@@ -140,8 +147,8 @@ class ChatServer:
 
         
         try:
-            read_task = asyncio.create_task(self.read_from_client(client_id, reader))
-            send_task = asyncio.create_task(self.send_to_client(client_id, writer))
+            read_task = asyncio.create_task(self.read_from_client(client_id, connection_id, reader))
+            send_task = asyncio.create_task(self.send_to_client(client_id, connection_id, writer))
             
             done, pending = await asyncio.wait([read_task, send_task], 
                                               return_when=asyncio.FIRST_COMPLETED)
@@ -152,17 +159,30 @@ class ChatServer:
         except asyncio.CancelledError:
             print(f"Клиент {client_id} прерван")
         finally:
-            #self.remove_client(client_id)
+            # Удаляем только это подключение
+            self.remove_connection(client_id, connection_id)
             writer.close()
             await writer.wait_closed()
-            print(f"Клиент {client_id} отключен")
+            print(f"Клиент {client_id} (подключение {connection_id}) отключен")
+    
+    def remove_connection(self, client_id, connection_id):
+        """Удаляет конкретное подключение пользователя"""
+        if (client_id, connection_id) in self.id_descr:
+            del self.id_descr[(client_id, connection_id)]
+        if (client_id, connection_id) in self.message_queues:
+            del self.message_queues[(client_id, connection_id)]
+        
+        if client_id in self.user_connections:
+            self.user_connections[client_id].discard(connection_id)
+            if not self.user_connections[client_id]:
+                del self.user_connections[client_id]    
     
 
 
 
 
 
-    async def read_from_client(self, client_id, reader):
+    async def read_from_client(self, client_id, connection_id, reader):
         try:
             while True:
                 data = await reader.read(1024)
@@ -175,7 +195,7 @@ class ChatServer:
                     received_msg = Message.from_dict(msg_data)
                     print(f"Получен объект Message от {received_msg.sender}: {received_msg.text}")
                     
-                    await self.send_to_friend(received_msg)
+                    await self.send_to_friend(received_msg, connection_id)
                     
                 except(ConnectionError, BrokenPipeError, ConnectionResetError) as e:
                     print(f"Соединение с клиентом {client_id} разорвано: {e}")
@@ -190,11 +210,11 @@ class ChatServer:
             print(f"Чтение от клиента {client_id} отменено")
             raise
     
-    async def send_to_client(self, client_id, writer):
+    async def send_to_client(self, client_id, connection_id, writer):
         try:
             while True:
                 try:
-                    message_obj = await self.message_queues[client_id].get()
+                    message_obj = await self.message_queues[(client_id, connection_id)].get()
                     
                     json_data = json.dumps(message_obj.to_dict())
                     writer.write(json_data.encode())
@@ -207,7 +227,7 @@ class ChatServer:
                     raise               
         
         except asyncio.CancelledError:
-            print(f"Отправка клиенту {client_id} отменена")
+            print(f"Отправка клиенту {client_id} ( подкл {connection_id}) отменена")
             raise
     
 
@@ -222,23 +242,22 @@ class ChatServer:
 
 
     
-    async def send_to_friend(self, message_obj):
+    async def send_to_friend(self, message_obj, cur_connection_id):
         friend_id = self.Tab.get_id_by_username(message_obj.receiver)
-
-        if friend_id in self.message_queues:
-            await self.message_queues[friend_id].put(message_obj)
-            print(f"Сообщение от {message_obj.sender} отправлено клиенту {message_obj.receiver}")
-            return True
-        else:
-            print(f"Клиент {friend_id} не найден")
-            # Уведомляем отправителя
-            error_msg = Message(sender="0", receiver=message_obj.sender, 
-                               text=f"Клиент {message_obj.receiver} не подключен. Сообщение не доставлено.")
-            sender_id = self.Tab.get_id_by_username(message_obj.sender)
-            if sender_id in self.message_queues:
-                await self.message_queues[sender_id].put(error_msg)
-            return False
-    
+        sender_id = self.Tab.get_id_by_username(message_obj.sender)
+        sent = False
+        if friend_id in self.user_connections:
+            for connection_id in self.user_connections[friend_id]:
+                if(friend_id, connection_id) in self.message_queues:
+                    await self.message_queues[(friend_id, connection_id)].put(message_obj)
+                    sent = True
+        
+        if sender_id in self.user_connections:
+            for connection_id in self.user_connections[sender_id]:
+                if connection_id != cur_connection_id:
+                    if (sender_id, connection_id) in self.message_queues:
+                        await self.message_queues[(sender_id, connection_id)].put(message_obj)
+        return sent
     # async def broadcast(self, message_obj, exclude_id=None):
     #     """Отправка сообщения всем клиентам"""
     #     print(f"Broadcast: {message_obj.text}")

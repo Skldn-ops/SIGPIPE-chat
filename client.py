@@ -101,9 +101,9 @@ class Chat:
                     try:
                         data = json.loads(received_data.decode())
                         message = Message.from_dict(data)
-                        if message.sender == self.chat_with:
+                        if message.sender == self.chat_with or message.sender == self.username:
                             print(f"\n[{message.sender} -> {message.receiver}]: {message.text}")
-                            print("> ", end="", flush=True)
+                            print(f"\n[{self.username} -> {self.chat_with}]> ", end="", flush=True)
                         else:
                             messages_queue.append(message)    
 
@@ -123,7 +123,10 @@ class Chat:
         async def send_messages(self):
             try:
                 while True:
-                    user_input = await asyncio.to_thread(input, "> ")
+                    if self.chat_with == "@0":
+                        user_input = await asyncio.to_thread(input, "> ")
+                    else:
+                        user_input = await asyncio.to_thread(input, f"\n[{self.username} -> {self.chat_with}]> ")
                     
                     if user_input.lower() == '/exit':
                         break
