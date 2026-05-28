@@ -1,0 +1,18 @@
+sudo docker run -d \
+  --name SIGPIPEchat \
+  --restart no \
+  -p 15601:8888 \
+  -v sigpipe_data:/app:rw \
+  --memory="256m" \
+  --cpus="0.5" \
+  --pids-limit=50 \
+  --security-opt no-new-privileges \
+  --cap-drop=ALL \
+  --read-only \
+  --tmpfs /tmp:noexec \
+  sigimg:test
+
+
+
+
+  sudo docker build -t messenger:latest .
