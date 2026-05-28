@@ -143,7 +143,7 @@ class ChatServer:
         # Отправляем клиенту его ID как объект Message
         welcome_msg = Message(sender="@0", receiver=client_name, 
                              text=f"Ваш ID: {client_id}. Ваше имя: {client_name}")
-        await self.server_answers(client_id, welcome_msg)
+        await self.serv_messages(client_id, welcome_msg)
 
         
         try:
@@ -232,8 +232,8 @@ class ChatServer:
     
 
 
-    async def server_answers(self, client_id, message_obj):
-
+    async def serv_messages(self, client_id, message_obj):
+        """Server puts a message to client to the queue"""
         if client_id in self.message_queues:
             await self.message_queues[client_id].put(message_obj)
             return True
@@ -241,8 +241,8 @@ class ChatServer:
     
 
 
-    
     async def send_to_friend(self, message_obj, cur_connection_id):
+        """This func puts message to a queue. They are sent in send_to_client"""
         friend_id = self.Tab.get_id_by_username(message_obj.receiver)
         sender_id = self.Tab.get_id_by_username(message_obj.sender)
         sent = False
