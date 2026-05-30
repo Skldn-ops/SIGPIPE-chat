@@ -79,6 +79,10 @@ class ChatServer:
                     data = await reader.read(1024)
                     client_name = data.decode()
                     if not client_name or client_name[0] != '@' or client_name == "@0" or not(self.Tab.get_id_by_username(client_name)):
+                        
+                        reg_mes = "no such username DISCONNECT\n"
+                        writer.write(reg_mes.encode())
+                        await writer.drain()
                         writer.close()
                         await writer.wait_closed()
 
@@ -279,7 +283,7 @@ class ChatServer:
     #         )
 
 async def main():
-    server = await asyncio.start_server(ChatServer().handle_client, '192.168.1.117', 8888)
+    server = await asyncio.start_server(ChatServer().handle_client, '192.168.1.117', 15601)
     
     addr = server.sockets[0].getsockname()
     print(f'Чат-сервер запущен на {addr}')

@@ -30,7 +30,7 @@ class Chat:
 
     async def chat_client(self):
         SERVER_IP = '192.168.1.117'
-        SERVER_PORT = 8888
+        SERVER_PORT = 15601
 
         messages_queue = []
         notifications = {}
@@ -60,6 +60,8 @@ class Chat:
                 data = await reader.read(1024)
                 ans = data.decode()
                 print(ans)
+                if ans[:2] == "no":
+                    return True
 
                 attempts = 5
                 while(ans[:7] != "success"):
@@ -73,8 +75,11 @@ class Chat:
                     
                     data = await reader.read(1024)
                     ans = data.decode()
-                    print(ans)
+                    if(ans[:7] != "success"):
+                        print(ans)
 
+                os.system('clear')
+                print(ans)
                 return False
 
 
@@ -180,9 +185,12 @@ class Chat:
                     
 
                     if user_input and user_input.lower()[0] == '@':
-                        #os.system('clear')
                         self.chat_with = user_input.lower()
+                        if self.chat_with == "@0":
+                            os.system('clear')
+                            await print_notifications()
                         await print_from_queue()
+                    
                     elif(self.chat_with != ''):
                         msg = Message(sender=self.username, receiver = self.chat_with, text = user_input)
                         writer.write(json.dumps(msg.to_dict()).encode())
