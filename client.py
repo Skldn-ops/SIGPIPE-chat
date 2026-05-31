@@ -2,6 +2,7 @@ import asyncio
 import json
 import getpass
 import os
+import struct
 
 class Message:
     def __init__(self, sender="0", receiver="0", text="0"):
@@ -118,19 +119,52 @@ class Chat:
                         "/rmcont to remove contact (doesent work)\n"
                         "/c to clear term\n" 
                         "/n to see notifications\n")
+            
+        async def get_history(self):
+            msg = Message(sender = self.username, receiver = "@0", text = f"HISTORY_UPD{self.chat_with}")
+            json_data = json.dumps(msg.to_dict())
+            writer.write(json_data.encode())
+            await writer.drain()
 
 
 
         async def receive_messages(self):
             try:
+                #
                 while True:
-                    received_data = await reader.read(1024)
-                    if not received_data:
+                    # received_data = await reader.read(1024)
+                    # if not received_data:
+                    #     print("Disconnect from server")
+                    #     break
+                    
+                    # try:
+                    #     data = json.loads(received_data.decode())
+                    #     message = Message.from_dict(data)
+                    #     if message.sender == self.chat_with or message.sender == self.username:
+                    #         print(f"\n[{message.sender} -> {message.receiver}]: {message.text}")
+                    #         print(f"\n[{self.username} -> {self.chat_with}]> ", end="", flush = True)
+                    #     else:
+                    #         messages_queue.append(message)
+                    #         if message.sender in notifications:
+                    #             notifications[message.sender] += 1
+                    #         else:
+                    #             notifications[message.sender] = 1
+                    try:
+                        len_bytes = await reader.readexactly(4)
+                    except asyncio.IncompleteReadError:
                         print("Disconnect from server")
                         break
                     
+                    length = struct.unpack('>I', len_bytes)[0]  # big-endian uint32
+                    
                     try:
-                        data = json.loads(received_data.decode())
+                        json_bytes = await reader.readexactly(length)
+                    except asyncio.IncompleteReadError:
+                        print("Disconnect from server (incomplete message)")
+                        break
+                    
+                    try:
+                        data = json.loads(json_bytes.decode('utf-8'))
                         message = Message.from_dict(data)
                         if message.sender == self.chat_with or message.sender == self.username:
                             print(f"\n[{message.sender} -> {message.receiver}]: {message.text}")
@@ -143,14 +177,8 @@ class Chat:
                                 notifications[message.sender] = 1
 
                     except json.JSONDecodeError:
-                        # Если это не JSON, выводим как обычный текст
-                        print(f"\n{received_data.decode().strip()}")
-                        print("> ", end="", flush=True)
+                        print("NOT JSON ERROR")
                     
-                    # print("> ", end="", flush=True)
-                    # if self.chat_with == "@0":
-                    #     #await print_notifications()
-                    #     print("> ", end="", flush=True)
 
             except asyncio.CancelledError:
                 pass
@@ -160,14 +188,10 @@ class Chat:
 
 
 
-
-
         async def send_messages(self):
             try:
                 while True:
                     if self.chat_with == "@0":
-                        #os.system('clear')
-                        #await print_notifications()
                         user_input = await asyncio.to_thread(input, "> ")
                     else:
                         user_input = await asyncio.to_thread(input, f"\n[{self.username} -> {self.chat_with}]> ")
@@ -189,6 +213,7 @@ class Chat:
                         if self.chat_with == "@0":
                             os.system('clear')
                             await print_notifications()
+                        await get_history(self)
                         await print_from_queue()
                     
                     elif(self.chat_with != ''):

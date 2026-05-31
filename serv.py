@@ -3,7 +3,11 @@ import json
 # from typing import List
 # from collections import deque
 import sql_tab
+import struct
 
+
+#   Имя пользователя начинается с @ 
+#   Название группы с #
 class Message:
     def __init__(self, sender="0", receiver="0", text="0"):
         self.sender = sender
@@ -182,7 +186,30 @@ class ChatServer:
                 del self.user_connections[client_id]    
     
 
+    async def send_history(self, connection_id, client: str, chat_with: str):
+        #print("Called send_history")
+        type_of_chat = 0
+        if chat_with and chat_with[0] == '@':
+            type_of_chat = 0
+        elif chat_with and chat_with[0] == '#':
+            type_of_chat = 1
+        #Список кортежей (user_id, chat_with_id, message_text, timestamp, status)
+        history = self.Tab.get_chat_history_by_username(client, chat_with, type_of_chat, 50)
+        client_id = self.Tab.get_id_by_username(client)
+        sent = False
+        if(client_id, connection_id) in self.message_queues: 
+            #print("Match")   
+            for msg in history:
+                #print("Sending msg...")
+                message_obj = Message(sender=self.Tab.get_username_by_id(msg[0]), 
+                                        receiver=self.Tab.get_username_by_id(msg[1]), 
+                                        text=f"{msg[2]}")
+                await self.message_queues[(client_id, connection_id)].put(message_obj)
+                sent = True
+                    
+        return sent
 
+        
 
 
 
@@ -198,9 +225,15 @@ class ChatServer:
                     msg_data = json.loads(data.decode())
                     received_msg = Message.from_dict(msg_data)
                     print(f"Получен объект Message от {received_msg.sender}: {received_msg.text}")
+                        
+                    if(received_msg.receiver != "@0"):
+                        await self.send_to_friend(received_msg, connection_id)
+                    elif(received_msg.text[:11] == "HISTORY_UPD"):
+                        await self.send_history(connection_id, received_msg.sender, received_msg.text[11:])
                     
-                    await self.send_to_friend(received_msg, connection_id)
-                    
+                
+                
+                
                 except(ConnectionError, BrokenPipeError, ConnectionResetError) as e:
                     print(f"Соединение с клиентом {client_id} разорвано: {e}")
                     break 
@@ -222,8 +255,13 @@ class ChatServer:
                 try:
                     message_obj = await self.message_queues[(client_id, connection_id)].get()
                     
+                    # json_data = json.dumps(message_obj.to_dict())
+                    # writer.write(json_data.encode())
+                    # await writer.drain()
                     json_data = json.dumps(message_obj.to_dict())
-                    writer.write(json_data.encode())
+                    json_bytes = json_data.encode('utf-8')
+                    length_prefix = struct.pack('>I', len(json_bytes))  # big-endian uint32
+                    writer.write(length_prefix + json_bytes)
                     await writer.drain()
                 
                 except(ConnectionError, BrokenPipeError, ConnectionResetError) as e:

@@ -169,7 +169,58 @@ class DB_manager:
         # Возвращаем ID созданного сообщения
         return self.cursor.lastrowid
     
+
+
+    def get_chat_history(self, user_id: int, chat_with_id: int, type_of_chat: int, limit: int = 50) -> List[tuple]:
+        """Получает историю чата по id"""
+
+        if type_of_chat == 0:   # Личные
+            self.cursor.execute('''
+                SELECT sender_id, receiver_id, message_text, timestamp, status
+                FROM messages 
+                WHERE chat_type = 0 
+                AND ((sender_id = ? AND receiver_id = ?) 
+                    OR (sender_id = ? AND receiver_id = ?))
+                ORDER BY timestamp DESC
+                LIMIT ?
+            ''', (user_id, chat_with_id, chat_with_id, user_id, limit))
+        # elif type_of_chat == 1: # Группы    Doesent work now
+        #     self.cursor.execute('''
+        #         SELECT sender_id, group_id, message_text, timestamp, status
+        #         FROM messages 
+        #         WHERE chat_type = 0 
+        #         AND ((sender_id = ? AND receiver_id = ?) 
+        #             OR (sender_id = ? AND receiver_id = ?))
+        #         ORDER BY timestamp DESC
+        #         LIMIT ?
+        #     ''', (user_id, chat_with_id, chat_with_id, user_id, limit))
     
+        # Возвращаем в хронологическом порядке (от старых к новым)
+        # messages = self.cursor.fetchall()
+        return list(reversed(self.cursor.fetchall()))
+
+    def get_chat_history_by_username(self, username: str, chat_with: str, type_of_chat:int, limit: int = 50) -> List[tuple]:
+        """
+        Получает историю чата в виде list
+        
+        Args:
+            user: ID запросившего пользователя
+            chat_with: ID собеседника или группы
+            limit: максимальное количество сообщений
+        
+        Returns:
+            Список кортежей (user_id, chat_with_id, message_text, timestamp, status)
+        """
+        user_id = self.get_id_by_username(username)
+        chat_with_id = self.get_id_by_username(chat_with)
+        
+        if user_id is None or chat_with_id is None:
+            return []
+        
+        return self.get_chat_history(user_id, chat_with_id, type_of_chat, limit)
+
+
+
     def close(self):
         """Закрывает соединение с базой данных"""
         if self.conn:
