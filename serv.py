@@ -52,7 +52,7 @@ class ChatServer:
                     await writer.drain()
                     data = await reader.read(1024)
                     client_name = data.decode()
-                    if client_name[0] != '@' or client_name == "@0":
+                    if client_name[0] != '@' or client_name == "@0" or self.Tab.get_id_by_username(client_name) != None:
                         writer.close()
                         await writer.wait_closed()
                     
@@ -146,8 +146,8 @@ class ChatServer:
         
         # Отправляем клиенту его ID как объект Message
         welcome_msg = Message(sender="@0", receiver=client_name, 
-                             text=f"Ваш ID: {client_id}. Ваше имя: {client_name}")
-        await self.serv_messages(client_id, welcome_msg)
+                             text=f"Ваше имя: {client_name}")
+        await self.serv_messages(client_id, connection_id, welcome_msg)
 
         
         try:
@@ -213,6 +213,8 @@ class ChatServer:
         except asyncio.CancelledError:
             print(f"Чтение от клиента {client_id} отменено")
             raise
+
+
     
     async def send_to_client(self, client_id, connection_id, writer):
         try:
@@ -236,10 +238,10 @@ class ChatServer:
     
 
 
-    async def serv_messages(self, client_id, message_obj):
+    async def serv_messages(self, client_id, connection_id, message_obj):
         """Server puts a message to client to the queue"""
-        if client_id in self.message_queues:
-            await self.message_queues[client_id].put(message_obj)
+        if (client_id, connection_id) in self.message_queues:
+            await self.message_queues[(client_id, connection_id)].put(message_obj)
             return True
         return False
     
@@ -249,6 +251,26 @@ class ChatServer:
         """This func puts message to a queue. They are sent in send_to_client"""
         friend_id = self.Tab.get_id_by_username(message_obj.receiver)
         sender_id = self.Tab.get_id_by_username(message_obj.sender)
+        
+        if friend_id is None:
+            print(f"Получатель {message_obj.receiver} не найден")
+            return False
+    
+        if sender_id is None:
+            print(f"Отправитель {message_obj.sender} не найден")
+            return False
+    
+        self.Tab.save_message(
+            sender_id = sender_id,
+            receiver_id = friend_id,
+            text = message_obj.text,
+            group_id = None,
+            reply_to_id = None,
+            chat_type = 0,
+            status = 0
+        )
+
+        
         sent = False
         if friend_id in self.user_connections:
             for connection_id in self.user_connections[friend_id]:
@@ -262,6 +284,9 @@ class ChatServer:
                     if (sender_id, connection_id) in self.message_queues:
                         await self.message_queues[(sender_id, connection_id)].put(message_obj)
         return sent
+    
+
+
     # async def broadcast(self, message_obj, exclude_id=None):
     #     """Отправка сообщения всем клиентам"""
     #     print(f"Broadcast: {message_obj.text}")
@@ -281,6 +306,9 @@ class ChatServer:
     #             self.broadcast(Message(sender="0", receiver="all", 
     #                                   text=f"Клиент {client_id} покинул чат"))
     #         )
+
+
+
 
 async def main():
     server = await asyncio.start_server(ChatServer().handle_client, '192.168.1.117', 15601)

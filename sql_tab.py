@@ -5,7 +5,7 @@ import hashlib
 
 class DB_manager:
     """Класс для работы с базой данных"""
-    def __init__(self, db_name='chat_server.db'):
+    def __init__(self, db_name='chat.db'):
         self.db_name = db_name
         self.conn = None
         self.cursor = None
@@ -32,21 +32,42 @@ class DB_manager:
         )
         ''')
         
-        # Таблица для хранения сообщений (опционально, для истории)
+        # Таблица для хранения сообщений
         self.cursor.execute('''
         CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sender_id INTEGER,
-            receiver_id INTEGER,
-            message_text TEXT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            delivered BOOLEAN DEFAULT 0,
-            FOREIGN KEY (sender_id) REFERENCES users(id),
-            FOREIGN KEY (receiver_id) REFERENCES users(id)
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_id INTEGER,
+        sender_id INTEGER NOT NULL,
+        receiver_id INTEGER,
+        message_text TEXT NOT NULL,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        status INTEGER DEFAULT 0,
+        reply_to_id INTEGER,
+        chat_type BOOLEAN DEFAULT 0,
+        FOREIGN KEY (sender_id) REFERENCES users(id),
+        FOREIGN KEY (receiver_id) REFERENCES users(id),
+        FOREIGN KEY (reply_to_id) REFERENCES messages(id)
         )
+        ''')
+
+        # Создание индексов
+        self.cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_messages_conversation_time 
+            ON messages(group_id, timestamp DESC)
+        ''')
+
+        self.cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_messages_sender 
+            ON messages(sender_id, timestamp DESC)
+        ''')
+
+        self.cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_messages_receiver_status 
+            ON messages(receiver_id, status, timestamp DESC)
         ''')
         
         self.conn.commit()
+
     
     def _hash_password(self, password: str) -> str:
         """Хэширует пароль"""
@@ -114,13 +135,40 @@ class DB_manager:
         self.cursor.execute('SELECT 1 FROM users WHERE id = ?', (user_id,))
         return self.cursor.fetchone() is not None
     
-    def save_message(self, sender_id: int, receiver_id: int, text: str):
-        """Сохраняет сообщение в базу данных (опционально)"""
+
+    
+    def save_message(self, sender_id: int, receiver_id: int, text: str, 
+                 group_id: int = None, reply_to_id: int = None, 
+                 chat_type: int = 0, status: int = 0):
+        """
+        Сохраняет сообщение в базу данных
+    
+        Args:
+            sender_id: ID отправителя
+            receiver_id: ID получателя (для личных сообщений) или None для групповых
+            text: Текст сообщения
+            group_id: ID группы (если групповой чат) None для личных сообщений
+            reply_to_id: ID сообщения, на которое отвечают (опционально)
+            chat_type: тип чата (0 - личный, 1 - групповой)
+            status: Статус сообщения (0 - отправлено, 1 - доставлено, 2 - прочитано)
+        """
+        
+        if chat_type != 0 and receiver_id is None:
+            receiver_id = None  # Явно указываем NULL для групповых сообщений
+        
         self.cursor.execute(
-            'INSERT INTO messages (sender_id, receiver_id, message_text) VALUES (?, ?, ?)',
-            (sender_id, receiver_id, text)
+            '''INSERT INTO messages 
+            (sender_id, receiver_id, message_text, group_id, 
+                reply_to_id, chat_type, status) 
+            VALUES (?, ?, ?, ?, ?, ?, ?)''',
+            (sender_id, receiver_id, text, group_id, 
+            reply_to_id, chat_type, status)
         )
         self.conn.commit()
+        
+        # Возвращаем ID созданного сообщения
+        return self.cursor.lastrowid
+    
     
     def close(self):
         """Закрывает соединение с базой данных"""
