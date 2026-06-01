@@ -34,7 +34,6 @@ class Chat:
         SERVER_PORT = 15601
 
         messages_queue = []
-        notifications = {}
 
             
         async def auth(reader, writer):
@@ -87,9 +86,6 @@ class Chat:
 
 
         async def print_from_queue():
-            if self.chat_with in notifications:
-                notifications.pop(self.chat_with)
-
             messages_queue.reverse()
             for i in range(len(messages_queue) - 1, -1, -1):
                 temp = messages_queue[i]
@@ -98,16 +94,6 @@ class Chat:
                     del messages_queue[i]
             messages_queue.reverse()
 
-
-        async def print_notifications():
-            #os.system('cls' if os.name == 'nt' else 'clear')
-            # #os.system('clear')
-            #os.system('clear')
-            if notifications:
-                print(f"---------------------------------------------------")
-                for notif in notifications:
-                    print(f"\nNew message from {notif} ! ({notifications[notif]})\n")
-                print(f"---------------------------------------------------\n")
 
         async def print_help():
             print("/exit to exit the app\n"
@@ -122,8 +108,26 @@ class Chat:
             
         async def get_history(self):
             msg = Message(sender = self.username, receiver = "@0", text = f"HISTORY_UPD{self.chat_with}")
+            # json_data = json.dumps(msg.to_dict())
+            # writer.write(json_data.encode())
+            # await writer.drain()
             json_data = json.dumps(msg.to_dict())
-            writer.write(json_data.encode())
+            json_bytes = json_data.encode('utf-8')
+            length_prefix = struct.pack('>I', len(json_bytes))
+            writer.write(length_prefix + json_bytes)
+            await writer.drain()
+
+        async def print_notifications():
+            self.chat_with="@0"
+            os.system('clear')
+            msg = Message(sender = self.username, receiver = "@0", text = f"NOTIFICATIONS_UPD")
+            # json_data = json.dumps(msg.to_dict())
+            # writer.write(json_data.encode())
+            # await writer.drain()
+            json_data = json.dumps(msg.to_dict())
+            json_bytes = json_data.encode('utf-8')
+            length_prefix = struct.pack('>I', len(json_bytes))
+            writer.write(length_prefix + json_bytes)
             await writer.drain()
 
 
@@ -132,23 +136,6 @@ class Chat:
             try:
                 #
                 while True:
-                    # received_data = await reader.read(1024)
-                    # if not received_data:
-                    #     print("Disconnect from server")
-                    #     break
-                    
-                    # try:
-                    #     data = json.loads(received_data.decode())
-                    #     message = Message.from_dict(data)
-                    #     if message.sender == self.chat_with or message.sender == self.username:
-                    #         print(f"\n[{message.sender} -> {message.receiver}]: {message.text}")
-                    #         print(f"\n[{self.username} -> {self.chat_with}]> ", end="", flush = True)
-                    #     else:
-                    #         messages_queue.append(message)
-                    #         if message.sender in notifications:
-                    #             notifications[message.sender] += 1
-                    #         else:
-                    #             notifications[message.sender] = 1
                     try:
                         len_bytes = await reader.readexactly(4)
                     except asyncio.IncompleteReadError:
@@ -171,10 +158,6 @@ class Chat:
                             print(f"\n[{self.username} -> {self.chat_with}]> ", end="", flush = True)
                         else:
                             messages_queue.append(message)
-                            if message.sender in notifications:
-                                notifications[message.sender] += 1
-                            else:
-                                notifications[message.sender] = 1
 
                     except json.JSONDecodeError:
                         print("NOT JSON ERROR")
@@ -213,12 +196,18 @@ class Chat:
                         if self.chat_with == "@0":
                             os.system('clear')
                             await print_notifications()
+                        os.system('clear')
                         await get_history(self)
                         await print_from_queue()
                     
                     elif(self.chat_with != ''):
                         msg = Message(sender=self.username, receiver = self.chat_with, text = user_input)
-                        writer.write(json.dumps(msg.to_dict()).encode())
+                        # writer.write(json.dumps(msg.to_dict()).encode())
+                        # await writer.drain()
+                        json_data = json.dumps(msg.to_dict())
+                        json_bytes = json_data.encode('utf-8')
+                        length_prefix = struct.pack('>I', len(json_bytes))
+                        writer.write(length_prefix + json_bytes)
                         await writer.drain()
 
             except asyncio.CancelledError:

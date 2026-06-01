@@ -4,6 +4,8 @@ import json
 # from collections import deque
 import sql_tab
 import struct
+from header import *
+
 
 
 #   Имя пользователя начинается с @ 
@@ -198,53 +200,75 @@ class ChatServer:
         client_id = self.Tab.get_id_by_username(client)
         sent = False
         if(client_id, connection_id) in self.message_queues: 
-            #print("Match")   
             for msg in history:
-                #print("Sending msg...")
                 message_obj = Message(sender=self.Tab.get_username_by_id(msg[0]), 
                                         receiver=self.Tab.get_username_by_id(msg[1]), 
                                         text=f"{msg[2]}")
                 await self.message_queues[(client_id, connection_id)].put(message_obj)
-                sent = True
+            sent = True
                     
         return sent
 
-        
+    async def send_notifications(self, username, connection_id):
+        user_id = self.Tab.get_id_by_username(username)
+        #Список кортежей (sender_id, unread_count)
+        notifications = self.Tab.get_userids_unread_messages(user_id)
+        sent = False
+        if(user_id, connection_id) in self.message_queues:  
+            message_obj = Message(sender = "@0", receiver = username, text = f"----------------------------")
+            await self.message_queues[(user_id, connection_id)].put(message_obj)
+            for notif in notifications:
+                friend = self.Tab.get_username_by_id(notif[0])
+                message_obj = Message(sender = "@0", 
+                                        receiver = username, 
+                                        text = f"New message from {friend} ! ({notif[1]})")
+                await self.message_queues[(user_id, connection_id)].put(message_obj)
+            message_obj = Message(sender = "@0", receiver = username, text = f"----------------------------")
+            await self.message_queues[(user_id, connection_id)].put(message_obj)
+            sent = True
+        return sent
+
 
 
 
     async def read_from_client(self, client_id, connection_id, reader):
         try:
             while True:
-                data = await reader.read(1024)
-                if not data:
-                    break
-                
-                # Пытаемся распарсить как JSON (объект Message)
                 try:
-                    msg_data = json.loads(data.decode())
+                    len_bytes = await reader.readexactly(4)
+                except asyncio.IncompleteReadError:
+                    print(f"Клиент {client_id} отключился (неполный заголовок)")
+                    break
+
+                length = struct.unpack('>I', len_bytes)[0]
+
+                try:
+                    json_bytes = await reader.readexactly(length)
+                except asyncio.IncompleteReadError:
+                    print(f"Клиент {client_id} отключился (неполное тело)")
+                    break
+
+                try:
+                    msg_data = json.loads(json_bytes.decode('utf-8'))
                     received_msg = Message.from_dict(msg_data)
                     print(f"Получен объект Message от {received_msg.sender}: {received_msg.text}")
-                        
-                    if(received_msg.receiver != "@0"):
+
+                    if received_msg.receiver != "@0":
                         await self.send_to_friend(received_msg, connection_id)
-                    elif(received_msg.text[:11] == "HISTORY_UPD"):
+                    elif received_msg.text[:11] == "HISTORY_UPD":
                         await self.send_history(connection_id, received_msg.sender, received_msg.text[11:])
-                    
-                
-                
-                
-                except(ConnectionError, BrokenPipeError, ConnectionResetError) as e:
-                    print(f"Соединение с клиентом {client_id} разорвано: {e}")
-                    break 
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    print(f"Ошибка при чтении от клиента {client_id}: {e}")
+                    elif received_msg.text[:17] == "NOTIFICATIONS_UPD":
+                        await self.send_notifications(received_msg.sender, connection_id)
+
+                except json.JSONDecodeError as e:
+                    print(f"Ошибка JSON от клиента {client_id}: {e}")
                     break
-                
+
         except asyncio.CancelledError:
             print(f"Чтение от клиента {client_id} отменено")
+            raise
+        except Exception as e:
+            print(f"Ошибка при чтении от клиента {client_id}: {e}")
             raise
 
 

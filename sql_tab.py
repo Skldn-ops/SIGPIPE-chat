@@ -2,6 +2,7 @@ import sqlite3
 from typing import List, Optional
 from collections import deque
 import hashlib
+from header import *
 
 class DB_manager:
     """Класс для работы с базой данных"""
@@ -150,7 +151,7 @@ class DB_manager:
             group_id: ID группы (если групповой чат) None для личных сообщений
             reply_to_id: ID сообщения, на которое отвечают (опционально)
             chat_type: тип чата (0 - личный, 1 - групповой)
-            status: Статус сообщения (0 - отправлено, 1 - доставлено, 2 - прочитано)
+            status: Статус сообщения (1 - отправлено, 2 - доставлено, 3 - прочитано)
         """
         
         if chat_type != 0 and receiver_id is None:
@@ -196,8 +197,10 @@ class DB_manager:
         #     ''', (user_id, chat_with_id, chat_with_id, user_id, limit))
     
         # Возвращаем в хронологическом порядке (от старых к новым)
-        # messages = self.cursor.fetchall()
-        return list(reversed(self.cursor.fetchall()))
+        # messages = self.cursor.fetchall()\
+        messages = self.cursor.fetchall()
+        self.update_messages_status(user_id, chat_with_id, type_of_chat, MessageStatus.READ)
+        return list(reversed(messages))
 
     def get_chat_history_by_username(self, username: str, chat_with: str, type_of_chat:int, limit: int = 50) -> List[tuple]:
         """
@@ -218,6 +221,48 @@ class DB_manager:
             return []
         
         return self.get_chat_history(user_id, chat_with_id, type_of_chat, limit)
+
+
+    def update_messages_status(self, user_id: int, chat_with_id: int, type_of_chat: int, new_status: str) -> int:
+        """Обновляет статус всех сообщений в чате на новый"""
+        
+        if type_of_chat == 0:  # Личные чаты
+            self.cursor.execute('''
+                UPDATE messages 
+                SET status = ? 
+                WHERE chat_type = 0 
+                AND status != ?  -- Не обновляем уже прочитанные/доставленные
+                AND ((sender_id = ? AND receiver_id = ?) 
+                    OR (sender_id = ? AND receiver_id = ?))
+            ''', (new_status, new_status, chat_with_id, user_id, user_id, chat_with_id))
+        
+        self.conn.commit()
+        return self.cursor.rowcount  # Возвращает количество обновленных сообщений
+
+
+    def get_userids_unread_messages(self, user_id: str) -> List[tuple]:
+        """
+        Возвращает список отправителей с количеством непрочитанных сообщений
+        
+        Args:
+            user_id: ID пользователя, для которого ищем непрочитанные сообщения
+        
+        Returns:
+            Список кортежей (sender_id, unread_count)
+        """
+        self.cursor.execute('''
+            SELECT 
+                sender_id,
+                COUNT(*) as unread_count
+            FROM messages
+            WHERE receiver_id = ?
+            AND chat_type = 0
+            AND status != ?
+            GROUP BY sender_id
+            ORDER BY unread_count DESC
+        ''', (user_id, MessageStatus.READ))
+        
+        return self.cursor.fetchall()
 
 
 
