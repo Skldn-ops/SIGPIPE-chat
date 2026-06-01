@@ -8,6 +8,7 @@ WORKDIR /app
 
 COPY serv.py .
 COPY sql_tab.py .
+COPY header.py .
 
 RUN chown -R sigusr:siggroup /app
 
