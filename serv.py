@@ -6,29 +6,13 @@ import sql_tab
 import struct
 from header import *
 
+from models import Message
+from config import Config
 
 
 #   Имя пользователя начинается с @ 
 #   Название группы с #
-class Message:
-    def __init__(self, sender="0", receiver="0", text="0"):
-        self.sender = sender
-        self.receiver = receiver
-        self.text = text
-    
-    def to_dict(self):
-        return {
-            'sender': self.sender,
-            'receiver': self.receiver,
-            'text': self.text
-        }
-    
-    @classmethod
-    def from_dict(cls, data):
-        return cls(data.get('sender', '0'), 
-                  data.get('receiver', '0'), 
-                  data.get('text', '0'))
-    
+
 
 class ChatServer:
     def __init__(self):
@@ -119,12 +103,6 @@ class ChatServer:
                     writer.write(reg_mes.encode())
                     await writer.drain()
                     return client_id
-
-                    
-                    
-
-
-        
     
     async def handle_client(self, reader, writer):
         addr = writer.get_extra_info('peername')
@@ -134,8 +112,6 @@ class ChatServer:
         except ConnectionResetError:
             print("Клиент ввел неверный пароль")
             return
-            
-
 
         client_name = self.Tab.get_username_by_id(client_id)
         print(f"Клиент {client_id} {client_name} подключился и авторизовался: {addr}")
@@ -155,7 +131,6 @@ class ChatServer:
                              text=f"Ваше имя: {client_name}")
         await self.serv_messages(client_id, connection_id, welcome_msg)
 
-        
         try:
             read_task = asyncio.create_task(self.read_from_client(client_id, connection_id, reader))
             send_task = asyncio.create_task(self.send_to_client(client_id, connection_id, writer))
@@ -187,7 +162,6 @@ class ChatServer:
             if not self.user_connections[client_id]:
                 del self.user_connections[client_id]    
     
-
     async def send_history(self, connection_id, client: str, chat_with: str):
         #print("Called send_history")
         type_of_chat = 0
@@ -227,9 +201,6 @@ class ChatServer:
             await self.message_queues[(user_id, connection_id)].put(message_obj)
             sent = True
         return sent
-
-
-
 
     async def read_from_client(self, client_id, connection_id, reader):
         try:
@@ -271,8 +242,6 @@ class ChatServer:
             print(f"Ошибка при чтении от клиента {client_id}: {e}")
             raise
 
-
-    
     async def send_to_client(self, client_id, connection_id, writer):
         try:
             while True:
@@ -298,8 +267,6 @@ class ChatServer:
             print(f"Отправка клиенту {client_id} ( подкл {connection_id}) отменена")
             raise
     
-
-
     async def serv_messages(self, client_id, connection_id, message_obj):
         """Server puts a message to client to the queue"""
         if (client_id, connection_id) in self.message_queues:
@@ -307,8 +274,6 @@ class ChatServer:
             return True
         return False
     
-
-
     async def send_to_friend(self, message_obj, cur_connection_id):
         """This func puts message to a queue. They are sent in send_to_client"""
         friend_id = self.Tab.get_id_by_username(message_obj.receiver)
@@ -332,7 +297,6 @@ class ChatServer:
             status = 0
         )
 
-        
         sent = False
         if friend_id in self.user_connections:
             for connection_id in self.user_connections[friend_id]:
@@ -347,8 +311,6 @@ class ChatServer:
                         await self.message_queues[(sender_id, connection_id)].put(message_obj)
         return sent
     
-
-
     # async def broadcast(self, message_obj, exclude_id=None):
     #     """Отправка сообщения всем клиентам"""
     #     print(f"Broadcast: {message_obj.text}")
@@ -370,10 +332,8 @@ class ChatServer:
     #         )
 
 
-
-
 async def main():
-    server = await asyncio.start_server(ChatServer().handle_client, '192.168.1.117', 15601)
+    server = await asyncio.start_server(ChatServer().handle_client, Config.IP, Config.PORT)
     
     addr = server.sockets[0].getsockname()
     print(f'Чат-сервер запущен на {addr}')

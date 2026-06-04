@@ -4,24 +4,8 @@ import getpass
 import os
 import struct
 
-class Message:
-    def __init__(self, sender="0", receiver="0", text="0"):
-        self.sender = sender
-        self.receiver = receiver
-        self.text = text
-    
-    def to_dict(self):
-        return {
-            'sender': self.sender,
-            'receiver': self.receiver,
-            'text': self.text
-        }
-    
-    @classmethod
-    def from_dict(cls, data):
-        return cls(data.get('sender', '0'), 
-                  data.get('receiver', '0'), 
-                  data.get('text', '0'))
+from models import Message
+from config import Config
     
 
 class Chat:
@@ -30,12 +14,8 @@ class Chat:
         self.username = "__NO_NAME__"
 
     async def chat_client(self):
-        SERVER_IP = '192.168.1.117'
-        SERVER_PORT = 15601
-
         messages_queue = []
 
-            
         async def auth(reader, writer):
             while True:    
                 data = await reader.read(1024)
@@ -82,9 +62,6 @@ class Chat:
                 print(ans)
                 return False
 
-
-
-
         async def print_from_queue():
             messages_queue.reverse()
             for i in range(len(messages_queue) - 1, -1, -1):
@@ -107,7 +84,11 @@ class Chat:
                         "/n to see notifications\n")
             
         async def get_history(self):
-            msg = Message(sender = self.username, receiver = "@0", text = f"HISTORY_UPD{self.chat_with}")
+            msg = Message(
+                sender = self.username,
+                receiver = "@0",
+                text = f"HISTORY_UPD{self.chat_with}"
+            )
             # json_data = json.dumps(msg.to_dict())
             # writer.write(json_data.encode())
             # await writer.drain()
@@ -120,7 +101,11 @@ class Chat:
         async def print_notifications():
             self.chat_with="@0"
             os.system('clear')
-            msg = Message(sender = self.username, receiver = "@0", text = f"NOTIFICATIONS_UPD")
+            msg = Message(
+                sender = self.username,
+                receiver = "@0",
+                text = f"NOTIFICATIONS_UPD"
+            )
             # json_data = json.dumps(msg.to_dict())
             # writer.write(json_data.encode())
             # await writer.drain()
@@ -129,8 +114,6 @@ class Chat:
             length_prefix = struct.pack('>I', len(json_bytes))
             writer.write(length_prefix + json_bytes)
             await writer.drain()
-
-
 
         async def receive_messages(self):
             try:
@@ -162,15 +145,11 @@ class Chat:
                     except json.JSONDecodeError:
                         print("NOT JSON ERROR")
                     
-
             except asyncio.CancelledError:
                 pass
             except Exception as e:
                 print(f"Ошибка приема: {e}")
         
-
-
-
         async def send_messages(self):
             try:
                 while True:
@@ -189,8 +168,6 @@ class Chat:
                     elif user_input.lower() == '/n':
                         await print_notifications()
                     
-                    
-
                     if user_input and user_input.lower()[0] == '@':
                         self.chat_with = user_input.lower()
                         if self.chat_with == "@0":
@@ -201,7 +178,11 @@ class Chat:
                         await print_from_queue()
                     
                     elif(self.chat_with != ''):
-                        msg = Message(sender=self.username, receiver = self.chat_with, text = user_input)
+                        msg = Message(
+                            sender=self.username,
+                            receiver = self.chat_with,
+                            text = user_input
+                        )
                         # writer.write(json.dumps(msg.to_dict()).encode())
                         # await writer.drain()
                         json_data = json.dumps(msg.to_dict())
@@ -216,19 +197,20 @@ class Chat:
                 writer.close()
                 await writer.wait_closed()
         
-
-        reader, writer = await asyncio.open_connection(SERVER_IP, SERVER_PORT)
+        reader, writer = await asyncio.open_connection(Config.IP, Config.PORT)
         print("Подключено к чат-серверу")
         while(await auth(reader, writer)):
             print("Failed to authenticate\n")
             return
-            #reader, writer = await asyncio.open_connection(SERVER_IP, SERVER_PORT)
+            #reader, writer = await asyncio.open_connection(Config.IP, Config.PORT)
 
         receive_task = asyncio.create_task(receive_messages(self))
         send_task = asyncio.create_task(send_messages(self))
         
-        done, pending = await asyncio.wait([receive_task, send_task], 
-                                        return_when=asyncio.FIRST_COMPLETED)
+        done, pending = await asyncio.wait(
+            [receive_task, send_task],
+            return_when=asyncio.FIRST_COMPLETED
+        )
         
         for task in pending:
             task.cancel()
